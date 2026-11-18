@@ -6,6 +6,10 @@
   const powerById = new Map(powers.map(power => [power.id, power]));
   const sourceById = new Map(sources.map(source => [source.id, source]));
   const get = id => document.getElementById(id);
+  const english = () => document.documentElement.lang.startsWith('en');
+  const copy = (turkish, translation) => english() ? translation : turkish;
+  const translate = value => value && (window.atlasT?.(value) ?? value);
+  const translatedNames = values => values.filter(Boolean).map(translate).join(' · ');
   const slider = get('time-track');
   const compareToggle = get('compare-toggle');
   const compareLeftYear = get('compare-left-year');
@@ -31,12 +35,14 @@
   const sourcesDialog = get('sources');
   const enabledPowers = new Set(powers.map(power => power.id));
   const powerInputs = new Map();
+  const localizedNodes = [];
   const milestones = [startYear, 1492, 1600, 1750, 1884, 1945, 1960, 2026];
   let year = startYear;
   let eventIndex = -1;
   let popupMode = null;
   let popupItem = null;
   let popupAnchor = null;
+  let refreshPopup = null;
   let returnFocus = null;
   let timer = null;
   let lastTick = 0;
@@ -72,6 +78,12 @@
     return node;
   }
 
+  function localize(node, content) {
+    node.textContent = content();
+    localizedNodes.push({ node, content });
+    return node;
+  }
+
   function sourceLink(source, title) {
     let url;
     try { url = new URL(source.url); } catch { return element('span', title); }
@@ -84,7 +96,7 @@
   }
 
   function updateEventNavigation() {
-    get('event-position').textContent = `${Math.max(0, eventIndex + 1)} / ${orderedEvents.length} olay`;
+    get('event-position').textContent = `${Math.max(0, eventIndex + 1)} / ${orderedEvents.length} ${copy('olay', 'events')}`;
     previousEvent.disabled = eventIndex < 0 || (eventIndex === 0 && orderedEvents[0].year === year);
     nextEvent.disabled = eventIndex >= orderedEvents.length - 1;
     showEvent.disabled = eventIndex < 0;
@@ -97,6 +109,7 @@
     popupMode = null;
     popupItem = null;
     popupAnchor = null;
+    refreshPopup = null;
     returnFocus = null;
     map.select(null, false);
     comparison?.rightMap?.select(null, false);
@@ -145,21 +158,22 @@
     heading.id = 'event-title';
     eventBody.replaceChildren(element('p', date, 'event-date'), heading);
     for (const paragraph of paragraphs.filter(Boolean)) eventBody.append(element('p', paragraph));
-    if (source && !preview) eventBody.append(sourceLink(source, 'Kaynağı aç ↗'));
+    if (source && !preview) eventBody.append(sourceLink(source, copy('Kaynağı aç ↗', 'Open source ↗')));
     popup.hidden = false;
     positionPopup();
     if (anchor?.keyboard && !preview) popupClose.focus({ preventScroll: true });
   }
 
-  function openFeature(feature, mode, anchor, context = { side: 'left', year }) {
+  function openFeature(feature, mode, anchor, context = { side: 'left', year }, refreshing = false) {
     const { id, name, power, label, start, end } = feature;
     const popupKey = `${context.side}:${context.year}:${id}`;
-    if (mode === 'preview' && popupMode === mode && popupItem === popupKey) return;
-    const mapDate = date => singleView
-      ? `${context.side === 'left' ? 'Sol' : 'Sağ'} harita · ${context.year} · ${date}`
-      : date;
+    if (!refreshing && mode === 'preview' && popupMode === mode && popupItem === popupKey) return;
+    refreshPopup = () => openFeature(feature, mode, { ...anchor, keyboard: false }, context, true);
+    const side = context.side === 'left' ? copy('Sol harita', 'Left map') : copy('Sağ harita', 'Right map');
+    const mapDate = date => singleView ? `${side} · ${context.year} · ${date}` : date;
     if (feature.kind === 'province') {
-      revealPopup(mode, popupKey, anchor, 'GÜNÜMÜZÜN İDARİ BÖLÜMLERİ', mapDate('Güncel referans'), name, [label],
+      revealPopup(mode, popupKey, anchor, copy('GÜNÜMÜZÜN İDARİ BÖLÜMLERİ', 'MODERN ADMINISTRATIVE DIVISIONS'),
+        mapDate(copy('Güncel referans', 'Present-day reference')), name, [label],
         { url: 'https://www.naturalearthdata.com/downloads/10m-cultural-vectors/10m-admin-1-states-provinces/', title: 'Natural Earth' });
       return;
     }
@@ -170,12 +184,12 @@
           ? `https://github.com/aourednik/historical-basemaps/blob/master/geojson/world_${snapshot}.geojson`
           : 'https://github.com/aourednik/historical-basemaps'
       };
-      const lastYear = end == null ? 'günümüz' : end - 1;
+      const lastYear = end == null ? copy('günümüz', 'present') : end - 1;
       const date = lastYear === start ? String(start) : `${start}–${lastYear}`;
-      revealPopup(mode, popupKey, anchor, 'TARİHSEL ALT BÖLGE', mapDate(date), name, [
-        [feature.parentName, powerById.get(power)?.name].filter(Boolean).join(' · '),
-        label,
-        snapshot ? `Kaynak harita yılı ${snapshot}` : null
+      revealPopup(mode, popupKey, anchor, copy('TARİHSEL ALT BÖLGE', 'HISTORICAL SUBREGION'), mapDate(date), translate(name), [
+        translatedNames([feature.parentName, powerById.get(power)?.name]),
+        translate(label),
+        snapshot ? copy(`Kaynak harita yılı ${snapshot}`, `Source map year ${snapshot}`) : null
       ], source);
       return;
     }
@@ -184,14 +198,15 @@
       candidate.region === id && candidate.year <= context.year && candidate.power === power
     );
     const source = sourceById.get(isUn ? 'nsgt' : event?.source);
-    const date = isUn ? `${context.year} · BM LİSTESİ` : end == null ? `${start}–günümüz` : `${start}–${end}`;
-    revealPopup(mode, popupKey, anchor, 'SEÇİLİ YER', mapDate(date), name, [
-      [powerById.get(power)?.name, label].filter(Boolean).join(' · '),
-      event?.description
+    const date = isUn ? `${context.year} · ${copy('BM LİSTESİ', 'UN LIST')}`
+      : end == null ? `${start}–${copy('günümüz', 'present')}` : `${start}–${end}`;
+    revealPopup(mode, popupKey, anchor, copy('SEÇİLİ YER', 'SELECTED PLACE'), mapDate(date), translate(name), [
+      translatedNames([powerById.get(power)?.name, label]),
+      translate(event?.description)
     ], source);
     if (feature.boundarySource && mode !== 'preview') {
       const url = feature.boundarySource === 'cshapes' ? 'https://icr.ethz.ch/data/cshapes/' : 'https://github.com/aourednik/historical-basemaps';
-      eventBody.append(sourceLink({url}, 'Sınırın kaynağı ↗'));
+      eventBody.append(sourceLink({ url }, copy('Sınırın kaynağı ↗', 'Boundary source ↗')));
       positionPopup();
     }
   }
@@ -201,8 +216,12 @@
     if (!event) return;
     stopPlaying();
     map.select(null, false);
-    revealPopup('event', eventIndex, { returnTarget, keyboard }, 'ZAMAN ÇİZELGESİ',
-      String(event.year), event.title, [event.description], sourceById.get(event.source));
+    function renderEvent(focusClose) {
+      revealPopup('event', eventIndex, { returnTarget, keyboard: focusClose }, copy('ZAMAN ÇİZELGESİ', 'TIMELINE'),
+        String(event.year), translate(event.title), [translate(event.description)], sourceById.get(event.source));
+    }
+    refreshPopup = () => renderEvent(false);
+    renderEvent(keyboard);
   }
 
   popupClose.addEventListener('click', () => dismissPopup(true));
@@ -253,7 +272,7 @@
       get('compare-years').hidden = true;
       get('timeline').removeAttribute('data-comparing');
       compareToggle.setAttribute('aria-pressed', 'false');
-      compareToggle.textContent = 'Karşılaştır';
+      updateComparisonLabels();
       provinceToggle.disabled = false;
       unToggle.checked = saved.un;
       changeYear(saved.year, saved.eventIndex);
@@ -298,7 +317,7 @@
     get('compare-overlay').hidden = false;
     get('timeline').setAttribute('data-comparing', '');
     compareToggle.setAttribute('aria-pressed', 'true');
-    compareToggle.textContent = 'Karşılaştırmayı kapat';
+    updateComparisonLabels();
     compareRightYear.value = right;
     changeYear(left);
     comparison.setYear(right);
@@ -323,9 +342,16 @@
       if (event.key === 'Enter') compareYear.blur();
     });
   }
+  function updateComparisonLabels() {
+    compareToggle.textContent = singleView
+      ? copy('Karşılaştırmayı kapat', 'Close comparison')
+      : copy('Karşılaştır', 'Compare');
+    divider.setAttribute('aria-valuetext', copy(`Sol harita yüzde ${divider.value}`, `Left map ${divider.value}%`));
+  }
+
   divider.addEventListener('input', () => {
     dismissPopup();
-    divider.setAttribute('aria-valuetext', `Sol harita yüzde ${divider.value}`);
+    updateComparisonLabels();
   });
   const compareHitZone = get('compare-hit-zone');
   function moveDivider(event) {
@@ -348,10 +374,16 @@
     if (timer == null) return;
     clearInterval(timer);
     timer = null;
-    playButton.textContent = '▶';
-    playButton.title = 'Oynat';
-    playButton.setAttribute('aria-label', 'Oynat');
-    playButton.setAttribute('aria-pressed', 'false');
+    updatePlayButton();
+  }
+
+  function updatePlayButton() {
+    const playing = timer != null;
+    const label = playing ? copy('Duraklat', 'Pause') : copy('Oynat', 'Play');
+    playButton.textContent = playing ? '❚❚' : '▶';
+    playButton.title = label;
+    playButton.setAttribute('aria-label', label);
+    playButton.setAttribute('aria-pressed', String(playing));
   }
 
   function manualYear(newYear, targetEventIndex) {
@@ -365,10 +397,6 @@
       return;
     }
     if (year === endYear) changeYear(startYear);
-    playButton.textContent = '❚❚';
-    playButton.title = 'Duraklat';
-    playButton.setAttribute('aria-label', 'Duraklat');
-    playButton.setAttribute('aria-pressed', 'true');
     lastTick = performance.now();
     playProgress = 0;
     timer = setInterval(() => {
@@ -381,12 +409,19 @@
       changeYear(year + elapsedYears);
       if (year === endYear) stopPlaying();
     }, 40);
+    updatePlayButton();
   }
 
   function updateFilters() {
     dismissPopup();
     map.setPowers([...enabledPowers]);
-    legendToggle.textContent = enabledPowers.size ? 'Tümünü gizle' : 'Tümünü göster';
+    updateLegendToggle();
+  }
+
+  function updateLegendToggle() {
+    legendToggle.textContent = enabledPowers.size
+      ? copy('Tümünü gizle', 'Hide all')
+      : copy('Tümünü göster', 'Show all');
   }
 
   for (const power of powers) {
@@ -402,7 +437,7 @@
     const swatch = element('span', '', 'swatch');
     swatch.style.setProperty('--power-color', power.color);
     swatch.setAttribute('aria-hidden', 'true');
-    item.append(checkbox, swatch, element('span', power.name));
+    item.append(checkbox, swatch, localize(element('span', ''), () => translate(power.name)));
     get('legend').append(item);
     powerInputs.set(power.id, checkbox);
   }
@@ -427,7 +462,7 @@
 
   for (const source of sources) {
     const item = document.createElement('li');
-    item.append(sourceLink(source, source.title));
+    item.append(localize(sourceLink(source, ''), () => translate(source.title)));
     get('source-list').append(item);
   }
 
@@ -445,7 +480,7 @@
       subregionJump.append(group);
       groups.set(referenceYear, group);
     }
-    const option = element('option', [region.name, region.parentName].filter(Boolean).join(' · '));
+    const option = localize(element('option', ''), () => translatedNames([region.name, region.parentName]));
     option.value = region.id;
     groups.get(referenceYear).append(option);
   }
@@ -479,7 +514,7 @@
   });
 
   for (const region of ATLAS_DATA.unTerritories) {
-    const button = element('button', region.name);
+    const button = localize(element('button', ''), () => translate(region.name));
     button.type = 'button';
     button.addEventListener('click', event => {
       map.focusAt(region.lon, region.lat);
@@ -494,7 +529,8 @@
     map.reset();
     changeYear(year);
   });
-  playButton.setAttribute('aria-pressed', 'false');
+  updatePlayButton();
+  updateComparisonLabels();
   playButton.addEventListener('click', togglePlaying);
   slider.addEventListener('input', () => manualYear(Number(slider.value)));
   yearInput.addEventListener('change', () => {
@@ -535,9 +571,17 @@
 
   document.addEventListener('pointerdown', event => {
     const tools = get('map-tools');
-    if (tools.open && !tools.contains(event.target)) tools.open = false;
+    if (tools.open && !tools.contains(event.target) && !event.target.closest('#language-switch')) tools.open = false;
   });
   get('un-links').addEventListener('click', () => { get('map-tools').open = false; });
+  document.addEventListener('atlas-language-change', () => {
+    for (const { node, content } of localizedNodes) node.textContent = content();
+    updateEventNavigation();
+    updateComparisonLabels();
+    updatePlayButton();
+    updateLegendToggle();
+    refreshPopup?.();
+  });
   if (window.innerWidth < 600) map.zoomBy(2, 560, 295);
   window.installProvinceLayer?.(map);
   changeYear(startYear, orderedEvents[0]?.year === startYear ? 0 : -1);

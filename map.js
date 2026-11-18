@@ -18,6 +18,7 @@
     return element;
   };
   const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+  const translate = value => window.atlasT?.(value) ?? value;
 
   function project(lon, lat) {
     const lambda = lon * Math.PI / 180;
@@ -147,6 +148,7 @@
       this.build(readGeography(window.ATLAS_GEOGRAPHY));
       this.bind();
       this.render();
+      document.addEventListener('atlas-language-change', () => this.updateLanguage());
     }
 
     build({ countries, land }) {
@@ -183,7 +185,7 @@
       }));
       this.territories = make('g');
       this.subregionLayer = make('g', {
-        'aria-label': 'Tarihsel alt bölgeler',
+        'aria-label': translate('Tarihsel alt bölgeler'),
         'clip-path': this.landClip
       });
       this.scene.append(this.territories, this.subregionLayer);
@@ -200,13 +202,29 @@
           x, y, 'text-anchor': 'middle', fill: '#244d5c', opacity: '.82', stroke: '#f8f7e9', 'stroke-width': '1.8', 'stroke-opacity': '.8', 'paint-order': 'stroke',
           'font-size': '9.5', 'font-weight': '600', 'font-family': 'inherit', 'letter-spacing': '2'
         });
-        label.textContent = name;
+        label.textContent = translate(name);
         this.labelLayer.append(label);
       }
       this.scene.append(this.labelLayer);
       this.markers = make('g');
       this.scene.append(this.markers);
       this.svg.replaceChildren(defs, this.scene);
+    }
+
+    updateLanguage() {
+      this.subregionLayer.setAttribute('aria-label', translate('Tarihsel alt bölgeler'));
+      labels.forEach(([name], index) => {
+        this.labelLayer.children[index].textContent = translate(name);
+      });
+      const layers = [this.territories, this.subregionLayer, this.markers];
+      for (const layer of layers) {
+        for (const node of layer.children) {
+          const feature = this.active.get(node.dataset.region);
+          this.labelFeature(node, feature);
+          const markerLabel = node.querySelector('text');
+          if (markerLabel) markerLabel.textContent = translate(feature.name);
+        }
+      }
     }
 
     bind() {
@@ -320,7 +338,7 @@
         const marker = points[0];
         const name = make('text', {x: 12, y: 4, fill: '#263d45', stroke: '#fffaf0', 'stroke-width': 3,
           'paint-order': 'stroke', 'font-size': 12, 'font-weight': 600});
-        name.textContent = this.active.get(marker.dataset.region).name;
+        name.textContent = translate(this.active.get(marker.dataset.region).name);
         marker.append(name);
       }
       this.territories.replaceChildren(...shapes);
@@ -350,10 +368,15 @@
       this.subregionLayer.replaceChildren(...areas);
     }
 
+    labelFeature(element, feature) {
+      const label = [feature.name, feature.parentName].filter(Boolean).map(translate).join(', ');
+      element.setAttribute('aria-label', label);
+    }
+
     decorate(element, feature, keyboard) {
       element.dataset.region = feature.id;
       element.style.cursor = 'pointer';
-      element.setAttribute('aria-label', [feature.name, feature.parentName].filter(Boolean).join(', '));
+      this.labelFeature(element, feature);
       if (keyboard) {
         element.setAttribute('tabindex', '0');
         element.setAttribute('role', 'button');

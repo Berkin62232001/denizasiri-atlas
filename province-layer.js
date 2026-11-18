@@ -4,6 +4,12 @@
   const MAX_RESPONSE_BYTES = 1_500_000;
   const MAX_UNITS = 6500;
   const MAX_ENCODED_LENGTH = 32_000;
+  const translate = value => window.atlasT?.(value) ?? value;
+  const countryNames = {
+    tr: new Intl.DisplayNames(['tr'], {type:'region'}),
+    en: new Intl.DisplayNames(['en'], {type:'region'})
+  };
+  const english = () => document.documentElement.lang === 'en';
 
   function invalidProvinces() {
     throw new Error('Invalid province geography');
@@ -100,8 +106,29 @@
 
     let items = new Map();
     let byName = new Map();
-    const countryNames = new Intl.DisplayNames(['tr'],{type:'region'});
     let initialized = null;
+    let loading = false;
+
+    function updateSearch() {
+      search.placeholder = translate(loading ? 'Bölgeler yükleniyor…' : 'İl veya eyalet ara');
+      const selected = byName.get(search.value);
+      const names = document.createDocumentFragment();
+      const localized = new Map();
+      for (const [index, item] of items) {
+        const {feature, path} = item;
+        let key = feature.name+' · '+feature.country;
+        if (localized.has(key)) key += ' ('+(Number(index)+1)+')';
+        localized.set(key,item);
+        const option = document.createElement('option');
+        option.value = key;
+        names.append(option);
+        path.setAttribute('aria-label',key);
+        if (selected === item) search.value = key;
+      }
+      options.replaceChildren(names);
+      byName = localized;
+    }
+
     async function load() {
       let rows = window.ATLAS_PROVINCES;
       if (!rows) {
@@ -110,33 +137,28 @@
       if (!Array.isArray(rows) || !rows.length || rows.length > MAX_UNITS) invalidProvinces();
       const budget = { encoded: 0, points: 0 };
       const nextItems = new Map();
-      const nextByName = new Map();
       const shapes = document.createDocumentFragment();
-      const names = document.createDocumentFragment();
       rows.forEach((row,index) => {
-        if (!Array.isArray(row) || row.length !== 4) invalidProvinces();
-        const [name,iso,country,ring] = row;
-        if ([name, iso, country].some(value => typeof value !== 'string' || value.length > 180)) invalidProvinces();
+        if (!Array.isArray(row) || (row.length !== 4 && row.length !== 5)) invalidProvinces();
+        const [name,iso,country,ring,englishName = name] = row;
+        if ([name, iso, country, englishName].some(value => typeof value !== 'string' || value.length > 180)) invalidProvinces();
         const path = document.createElementNS(ns,'path');
         path.setAttribute('d',pathFor(ring, budget));
         path.setAttribute('stroke-width','.55');
         path.setAttribute('vector-effect','non-scaling-stroke');
         path.dataset.province = String(index);
-        const area = /^[A-Z]{2}$/.test(iso) ? countryNames.of(iso) : country;
-        const feature = {id:'province-'+index,name,kind:'province',label:area+' · Günümüzün birinci düzey idarî bölümü'};
-        nextItems.set(String(index),feature);
-        let key = name+' · '+area;
-        if (nextByName.has(key)) key += ' ('+(index+1)+')';
-        nextByName.set(key,{feature,path});
-        const option = document.createElement('option');
-        option.value = key;
-        names.append(option);
+        const feature = {
+          id:'province-'+index, kind:'province',
+          get name() { return english() ? englishName : name; },
+          get country() { return /^[A-Z]{2}$/.test(iso) ? countryNames[english() ? 'en' : 'tr'].of(iso) : country; },
+          get label() { return this.country+' · '+translate('Günümüzün birinci düzey idarî bölümü'); }
+        };
+        nextItems.set(String(index),{feature,path});
         shapes.append(path);
       });
       layer.append(shapes);
-      options.append(names);
       items = nextItems;
-      byName = nextByName;
+      updateSearch();
     }
     const setVisible = enabled => {
       layer.style.display = lines.style.display = enabled ? '' : 'none';
@@ -144,26 +166,30 @@
       if (!enabled) search.value = '';
     };
     setVisible(false);
+    document.addEventListener('atlas-language-change',updateSearch);
     toggle.addEventListener('change',async () => {
       map.select(null);
       setVisible(toggle.checked);
       if (!toggle.checked) return;
       search.disabled = true;
-      search.placeholder = 'Bölgeler yükleniyor…';
+      loading = true;
+      search.placeholder = translate('Bölgeler yükleniyor…');
       try {
         initialized ??= load();
         await initialized;
         search.disabled = false;
-        search.placeholder = 'İl veya eyalet ara';
         document.getElementById('province-error').hidden = true;
       } catch {
         initialized = null;
         toggle.checked = false;
         setVisible(false);
         document.getElementById('province-error').hidden = false;
+      } finally {
+        loading = false;
+        search.placeholder = translate('İl veya eyalet ara');
       }
     });
-    function featureAt(target) { return items.get(target?.dataset?.province); }
+    function featureAt(target) { return items.get(target?.dataset?.province)?.feature; }
     layer.addEventListener('pointerover',e => {
       const feature = featureAt(e.target);
       if (feature && e.pointerType === 'mouse' && !e.buttons) map.callbacks.onHover(feature,e);

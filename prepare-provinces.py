@@ -41,7 +41,9 @@ for item in reader.iterShapeRecords():
                 encode(delta*2 if delta>=0 else -delta*2-1,data)
             prev=(x,y)
     if not data:continue
-    rows.append([rec['name_tr'] or rec['name'] or rec['name_en'] or rec['admin'],rec['iso_a2'],rec['admin'], base64.b64encode(data).decode()])
+    name=rec['name_tr'] or rec['name'] or rec['name_en'] or rec['admin']
+    english_name=rec['name_en'] or rec['name'] or name
+    rows.append([name,rec['iso_a2'],rec['admin'],base64.b64encode(data).decode(),english_name])
 dest=root/'assets/provinces.json'
 dest.write_text(json.dumps(rows,ensure_ascii=False,separators=(',',':')))
 print(len(rows),'units',dest.stat().st_size)

@@ -8,7 +8,7 @@ from pathlib import Path
 
 root = Path(__file__).resolve().parent
 
-modules = ('atlas-bootstrap','history','map','province-layer','compare','ui')
+modules = ('atlas-bootstrap','history-en','map-en','language','history','map','province-layer','compare','ui')
 datasets = {'geography':'GEOGRAPHY', 'footprints':'FOOTPRINTS', 'subregions':'SUBREGIONS'}
 
 def read_dataset(name, identifier):

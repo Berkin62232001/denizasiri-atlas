@@ -46,3 +46,5 @@ node tests/decoder.cjs
 ## Lisans
 
 Özgün uygulama kodu, arayüz ve üretim betikleri GPL-3.0-only lisanslıdır. Harita katmanlarının kendi lisansları ve değişiklik açıklamaları veri bildiriminde yer alır. [GPLv3](LICENSE) · [Veri kaynakları ve lisansları](DATA-LICENSES.md)
+
+Arayüzün sağ üstündeki TR / EN anahtarı ile dil değiştirilebilir. Dil tercihi tarayıcı izin verdiğinde cihazda saklanır. Dil geçiş testini çalıştırmak için `node tests/language.cjs` komutunu kullanın.
