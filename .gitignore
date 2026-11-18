@@ -1,0 +1,13 @@
+/dist/
+/outputs/
+/optional/
+/cshapes/
+/countries/
+/land/
+/provinces/
+/NE2_LR_LC_SR_W.tif
+/relief-preview.png
+node_modules/
+__pycache__/
+.venv/
+.DS_Store
